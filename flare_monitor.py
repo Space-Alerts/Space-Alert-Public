@@ -16,12 +16,19 @@ TEST_MODE = False            # Set to True (or run with --test) to send an immed
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "your-unique-topic-name")
 # ==========================================
 
-NOAA_XRAY_URL = "https://noaa.gov"
+import urllib.parse
+
+NOAA_XRAY_URLS = [
+    "https://noaa.gov",
+    "https://corsproxy.io" + urllib.parse.quote("https://noaa.gov", safe=""),
+    "https://allorigins.win" + urllib.parse.quote("https://noaa.gov", safe=""),
+]
 NOAA_KP_URL = "https://noaa.gov"
 NOAA_SCALES_URL = "https://noaa.gov"
 
 
-def fetch_json(url: str):
+def fetch_json(url_or_urls):
+    urls = [url_or_urls] if isinstance(url_or_urls, str) else url_or_urls
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -29,13 +36,18 @@ def fetch_json(url: str):
             "Chrome/131.0.0.0 Safari/537.36"
         ),
         "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://www.swpc.noaa.gov/",
-        "Connection": "keep-alive",
     }
-    req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=20) as response:
-        return json.loads(response.read().decode("utf-8"))
+    last_err = None
+    for url in urls:
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=20) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except Exception as err:
+            last_err = err
+            continue
+    raise last_err
+
 
 STATE_FILE = "state.json"
 
