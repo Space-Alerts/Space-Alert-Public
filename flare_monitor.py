@@ -11,7 +11,7 @@ COOLDOWN_HOURS = 3        # Minimum hours before alerting again (unless a much s
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "your-unique-topic-name")
 # ==========================================
 
-NOAA_XRAY_URL = "https://noaa.gov"
+NOAA_XRAY_URL = "https://services.swpc.noaa.gov/json/goes/primary/xrays-1-day.json"
 STATE_FILE = "state.json"
 
 CLASS_MULTIPLIERS = {
