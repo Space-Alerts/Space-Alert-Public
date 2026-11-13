@@ -47,8 +47,9 @@ def fetch_json(url: str):
 
 
 def class_to_flux(flare_str: str) -> float:
-    letter = flare_str[0].upper()
-    number = float(flare_str[1:])
+    cleaned = flare_str.strip().upper()
+    letter = cleaned[0]
+    number = float(cleaned[1:])
     return CLASS_MULTIPLIERS[letter] * number
 
 
@@ -124,7 +125,6 @@ def should_trigger(category_state: dict, current_val: float, now: datetime, esca
 
 
 def get_recent_xray_readings() -> list:
-    # 1. Try JSON feed first
     try:
         data = fetch_json(NOAA_XRAY_JSON_URL)
         long_wave = [
@@ -137,7 +137,6 @@ def get_recent_xray_readings() -> list:
     except Exception:
         pass
 
-    # 2. Fallback to NOAA's unblocked plain-text GOES X-ray table
     raw_txt = fetch_text(NOAA_XRAY_TXT_URL)
     readings = []
     for line in raw_txt.splitlines():
@@ -145,12 +144,12 @@ def get_recent_xray_readings() -> list:
         if not line or line.startswith("#") or line.startswith(":"):
             continue
         parts = line.split()
-        # Columns: YYYY MM DD HHMM Julian_Day Secs_of_Day Short_Flux Long_Flux
         if len(parts) >= 8:
             try:
+                year, month, day, hhmm = parts[0], parts[1], parts[2], parts[3]
                 long_flux = float(parts[7])
                 if long_flux > 0:
-                    time_tag = f"{parts[0]}-{parts[1]}-{parts[2]}T{parts[3][:2]}:{parts[3][2:]}:00Z"
+                    time_tag = f"{year}-{month}-{day}T{hhmm[:2]}:{hhmm[2:]}:00Z"
                     readings.append({"time_tag": time_tag, "flux": long_flux})
             except ValueError:
                 continue
@@ -168,14 +167,14 @@ def check_solar_flares(state: dict, now: datetime) -> bool:
     current_flux = peak_reading["flux"]
     flare_label = flux_to_class(current_flux)
 
-    print(f"[Flare] Peak (10m): {flare_label} ({current_flux:.2e} W/m²) | Threshold: {MIN_FLARE_CLASS}")
+    print(f"Flare Peak (10m): {flare_label} ({current_flux:.2e} W/m2) | Threshold: {MIN_FLARE_CLASS}")
 
     if current_flux >= threshold_flux and should_trigger(state["flare"], current_flux, now, escalation_factor=1.5):
         send_notification(
             title=f"Solar Flare Alert: {flare_label}",
             body=(
                 f"Class {flare_label} solar flare detected!\n"
-                f"Peak X-Ray Flux: {current_flux:.2e} W/m²\n"
+                f"Peak X-Ray Flux: {current_flux:.2e} W/m2\n"
                 f"Time (UTC): {peak_reading['time_tag']}"
             ),
             tags="sunny,warning",
@@ -202,7 +201,8 @@ def check_geomagnetic_kp(state: dict, now: datetime) -> bool:
         current_kp = float(latest[1])
 
     g_label = kp_to_g_scale(current_kp)
-    print(f"[Kp Index] Latest: Kp {current_kp:.2f} [{g_label}] | Threshold: Kp {MIN_KP_INDEX}")
+    g_short = g_label.split()[0]
+    print(f"Kp Index Latest: Kp {current_kp:.2f} ({g_label}) | Threshold: Kp {MIN_KP_INDEX}")
 
     last_str = state["kp"].get("last_alert_time")
     last_kp = float(state["kp"].get("peak_value", 0.0))
@@ -211,7 +211,7 @@ def check_geomagnetic_kp(state: dict, now: datetime) -> bool:
 
     if current_kp >= MIN_KP_INDEX and (cooldown_ok or escalated):
         send_notification(
-            title=f"Geomagnetic Storm: Kp {current_kp:.1f} ({g_label.split()[0]})",
+            title=f"Geomagnetic Storm: Kp {current_kp:.1f} ({g_short})",
             body=(
                 f"Geomagnetic activity reached {g_label}.\n"
                 f"Planetary Kp Index: {current_kp:.2f}\n"
@@ -233,7 +233,7 @@ def check_radio_blackouts(state: dict, now: datetime) -> bool:
     r_scale = int(r_data.get("Scale") or 0)
     r_text = r_data.get("Text", "none")
 
-    print(f"[Radio Blackout] Current: R{r_scale} ({r_text}) | Threshold: R{MIN_RADIO_BLACKOUT}")
+    print(f"Radio Blackout Current: R{r_scale} ({r_text}) | Threshold: R{MIN_RADIO_BLACKOUT}")
 
     last_str = state["radio_blackout"].get("last_alert_time")
     last_r = int(state["radio_blackout"].get("peak_value", 0))
@@ -274,6 +274,7 @@ def run_test_mode():
 
 
 def main():
+    print("Starting Space Weather Monitor...")
     is_test = TEST_MODE or ("--test" in sys.argv) or (os.environ.get("TEST_MODE", "").lower() == "true")
     if is_test:
         run_test_mode()
