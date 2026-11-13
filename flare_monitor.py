@@ -16,9 +16,27 @@ TEST_MODE = False            # Set to True (or run with --test) to send an immed
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "your-unique-topic-name")
 # ==========================================
 
-NOAA_XRAY_URL = "https://services.swpc.noaa.gov/json/goes/primary/xrays-1-day.json"
-NOAA_KP_URL = "https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json"
-NOAA_SCALES_URL = "https://services.swpc.noaa.gov/products/noaa-scales.json"
+NOAA_XRAY_URL = "https://noaa.gov"
+NOAA_KP_URL = "https://noaa.gov"
+NOAA_SCALES_URL = "https://noaa.gov"
+
+
+def fetch_json(url: str):
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/131.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.swpc.noaa.gov/",
+        "Connection": "keep-alive",
+    }
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=20) as response:
+        return json.loads(response.read().decode("utf-8"))
+
 STATE_FILE = "state.json"
 
 CLASS_MULTIPLIERS = {
