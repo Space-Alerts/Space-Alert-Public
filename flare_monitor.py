@@ -16,7 +16,7 @@ TEST_MODE = False            # Set to True (or run with --test) to send an immed
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "your-unique-topic-name")
 # ==========================================
 
-NOAA_XRAY_URL = "https://noaa.gov"
+NOAA_XRAY_URL = "https://services.swpc.noaa.gov/json/goes/primary/xrays-1-day.json"
 NOAA_KP_URL = "https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json"
 NOAA_SCALES_URL = "https://services.swpc.noaa.gov/products/noaa-scales.json"
 STATE_FILE = "state.json"
