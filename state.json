@@ -1,4 +1,15 @@
 {
-  "last_alert_time": null,
-  "peak_flux_in_event": 0.0
+  "flare": {
+    "last_alert_time": null,
+    "peak_value": 0.0
+  },
+  "kp": {
+    "last_alert_time": null,
+    "peak_value": 0.0
+  },
+  "radio_blackout": {
+    "last_alert_time": null,
+    "peak_value": 0
+  }
 }
+
