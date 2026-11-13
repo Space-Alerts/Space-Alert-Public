@@ -7,7 +7,7 @@ import urllib.request
 # CONFIGURATION (Edit these values anytime)
 # ==========================================
 MIN_FLARE_CLASS = "M3.0"  # Examples: "C5.0", "M3.0", "M7.5", "X1.0"
-COOLDOWN_HOURS = 2        # Minimum hours before alerting again (unless a much stronger peak occurs)
+COOLDOWN_HOURS = 3        # Minimum hours before alerting again (unless a much stronger peak occurs)
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "your-unique-topic-name")
 # ==========================================
 
