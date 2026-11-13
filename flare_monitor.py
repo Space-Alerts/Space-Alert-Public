@@ -35,7 +35,7 @@ def flux_to_class(f: float) -> str:
 
 
 def notify(title: str, body: str, tags: str = "sunny,warning", prio: str = "high"):
-    url = "https://ntfy.sh" + NTFY_TOPIC.strip()
+    url = "https://ntfy.sh/" + NTFY_TOPIC.strip()
     req = urllib.request.Request(url, data=body.encode("utf-8"), method="POST")
     req.add_header("Title", title)
     req.add_header("Priority", prio)
