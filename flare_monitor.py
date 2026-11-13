@@ -1,7 +1,6 @@
 import json
 import os
 import sys
-import urllib.parse
 import urllib.request
 from datetime import datetime, timezone, timedelta
 
@@ -17,25 +16,10 @@ TEST_MODE = False            # Set to True (or run with --test) to send an immed
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "your-unique-topic-name")
 # ==========================================
 
-PRIMARY_XRAY_ENDPOINT = "https://noaa.gov"
-SECONDARY_XRAY_ENDPOINT = "https://noaa.gov"
-
-NOAA_XRAY_URLS = [
-    PRIMARY_XRAY_ENDPOINT,
-    SECONDARY_XRAY_ENDPOINT,
-    "https://corsproxy.io" + urllib.parse.quote(PRIMARY_XRAY_ENDPOINT, safe=""),
-    "https://allorigins.win" + urllib.parse.quote(PRIMARY_XRAY_ENDPOINT, safe=""),
-]
-
-NOAA_KP_URLS = [
-    "https://noaa.gov",
-    "https://corsproxy.io" + urllib.parse.quote("https://noaa.gov", safe=""),
-]
-
-NOAA_SCALES_URLS = [
-    "https://noaa.gov",
-    "https://corsproxy.io" + urllib.parse.quote("https://noaa.gov", safe=""),
-]
+NOAA_XRAY_JSON_URL = "https://noaa.gov"
+NOAA_XRAY_TXT_URL = "https://noaa.gov"
+NOAA_KP_URL = "https://noaa.gov"
+NOAA_SCALES_URL = "https://noaa.gov"
 
 STATE_FILE = "state.json"
 
@@ -48,27 +32,18 @@ CLASS_MULTIPLIERS = {
 }
 
 
-def fetch_json(url_or_urls):
-    urls = [url_or_urls] if isinstance(url_or_urls, str) else url_or_urls
+def fetch_text(url: str) -> str:
     headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/131.0.0.0 Safari/537.36"
-        ),
-        "Accept": "application/json, text/plain, */*",
+        "User-Agent": "Mozilla/5.0 (compatible; SpaceWeatherMonitor/1.0)",
+        "Accept": "*/*",
     }
-    last_err = None
-    for url in urls:
-        try:
-            req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=20) as response:
-                return json.loads(response.read().decode("utf-8"))
-        except Exception as err:
-            print(f"Fetch failed for {url}: {err}")
-            last_err = err
-            continue
-    raise last_err
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=20) as response:
+        return response.read().decode("utf-8")
+
+
+def fetch_json(url: str):
+    return json.loads(fetch_text(url))
 
 
 def class_to_flux(flare_str: str) -> float:
@@ -148,17 +123,49 @@ def should_trigger(category_state: dict, current_val: float, now: datetime, esca
     return False
 
 
+def get_recent_xray_readings() -> list:
+    # 1. Try JSON feed first
+    try:
+        data = fetch_json(NOAA_XRAY_JSON_URL)
+        long_wave = [
+            {"time_tag": row["time_tag"], "flux": float(row["flux"])}
+            for row in data
+            if row.get("energy") == "0.1-0.8nm" and row.get("flux") is not None
+        ]
+        if long_wave:
+            return long_wave[-10:]
+    except Exception:
+        pass
+
+    # 2. Fallback to NOAA's unblocked plain-text GOES X-ray table
+    raw_txt = fetch_text(NOAA_XRAY_TXT_URL)
+    readings = []
+    for line in raw_txt.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or line.startswith(":"):
+            continue
+        parts = line.split()
+        # Columns: YYYY MM DD HHMM Julian_Day Secs_of_Day Short_Flux Long_Flux
+        if len(parts) >= 8:
+            try:
+                long_flux = float(parts[7])
+                if long_flux > 0:
+                    time_tag = f"{parts[0]}-{parts[1]}-{parts[2]}T{parts[3][:2]}:{parts[3][2:]}:00Z"
+                    readings.append({"time_tag": time_tag, "flux": long_flux})
+            except ValueError:
+                continue
+    return readings[-10:]
+
+
 def check_solar_flares(state: dict, now: datetime) -> bool:
     threshold_flux = class_to_flux(MIN_FLARE_CLASS)
-    data = fetch_json(NOAA_XRAY_URLS)
-    long_wave = [row for row in data if row.get("energy") == "0.1-0.8nm"]
-    if not long_wave:
+    recent = get_recent_xray_readings()
+    if not recent:
         print("No X-ray 0.1-0.8nm data available.")
         return False
 
-    recent = long_wave[-10:]
-    peak_reading = max(recent, key=lambda x: float(x["flux"]))
-    current_flux = float(peak_reading["flux"])
+    peak_reading = max(recent, key=lambda x: x["flux"])
+    current_flux = peak_reading["flux"]
     flare_label = flux_to_class(current_flux)
 
     print(f"[Flare] Peak (10m): {flare_label} ({current_flux:.2e} W/m²) | Threshold: {MIN_FLARE_CLASS}")
@@ -181,16 +188,20 @@ def check_solar_flares(state: dict, now: datetime) -> bool:
 
 
 def check_geomagnetic_kp(state: dict, now: datetime) -> bool:
-    data = fetch_json(NOAA_KP_URLS)
-    if not data or len(data) < 2:
+    data = fetch_json(NOAA_KP_URL)
+    if not data:
         print("No Kp index data available.")
         return False
 
     latest = data[-1]
-    timestamp = latest[0]
-    current_kp = float(latest[1])
-    g_label = kp_to_g_scale(current_kp)
+    if isinstance(latest, dict):
+        timestamp = latest.get("time_tag", "Unknown")
+        current_kp = float(latest.get("Kp") or latest.get("kp_index") or 0.0)
+    else:
+        timestamp = latest[0]
+        current_kp = float(latest[1])
 
+    g_label = kp_to_g_scale(current_kp)
     print(f"[Kp Index] Latest: Kp {current_kp:.2f} [{g_label}] | Threshold: Kp {MIN_KP_INDEX}")
 
     last_str = state["kp"].get("last_alert_time")
@@ -216,7 +227,7 @@ def check_geomagnetic_kp(state: dict, now: datetime) -> bool:
 
 
 def check_radio_blackouts(state: dict, now: datetime) -> bool:
-    data = fetch_json(NOAA_SCALES_URLS)
+    data = fetch_json(NOAA_SCALES_URL)
     current_conditions = data.get("0", {})
     r_data = current_conditions.get("R", {})
     r_scale = int(r_data.get("Scale") or 0)
@@ -270,10 +281,3 @@ def main():
 
     now = datetime.now(timezone.utc)
     state = load_state()
-    state_changed = False
-
-    for check_fn in (check_solar_flares, check_geomagnetic_kp, check_radio_blackouts):
-        try:
-            if check_fn(state, now):
-                state_changed = True
-        except Exception as exc:
