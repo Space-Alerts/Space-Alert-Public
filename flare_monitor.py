@@ -1,8 +1,9 @@
 import json
 import os
 import sys
-from datetime import datetime, timezone, timedelta
+import urllib.parse
 import urllib.request
+from datetime import datetime, timezone, timedelta
 
 # ==========================================
 # CONFIGURATION (Edit these values anytime)
@@ -16,15 +17,35 @@ TEST_MODE = False            # Set to True (or run with --test) to send an immed
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "your-unique-topic-name")
 # ==========================================
 
-import urllib.parse
+PRIMARY_XRAY_ENDPOINT = "https://noaa.gov"
+SECONDARY_XRAY_ENDPOINT = "https://noaa.gov"
 
 NOAA_XRAY_URLS = [
+    PRIMARY_XRAY_ENDPOINT,
+    SECONDARY_XRAY_ENDPOINT,
+    "https://corsproxy.io" + urllib.parse.quote(PRIMARY_XRAY_ENDPOINT, safe=""),
+    "https://allorigins.win" + urllib.parse.quote(PRIMARY_XRAY_ENDPOINT, safe=""),
+]
+
+NOAA_KP_URLS = [
     "https://noaa.gov",
     "https://corsproxy.io" + urllib.parse.quote("https://noaa.gov", safe=""),
-    "https://allorigins.win" + urllib.parse.quote("https://noaa.gov", safe=""),
 ]
-NOAA_KP_URL = "https://noaa.gov"
-NOAA_SCALES_URL = "https://noaa.gov"
+
+NOAA_SCALES_URLS = [
+    "https://noaa.gov",
+    "https://corsproxy.io" + urllib.parse.quote("https://noaa.gov", safe=""),
+]
+
+STATE_FILE = "state.json"
+
+CLASS_MULTIPLIERS = {
+    "A": 1e-8,
+    "B": 1e-7,
+    "C": 1e-6,
+    "M": 1e-5,
+    "X": 1e-4,
+}
 
 
 def fetch_json(url_or_urls):
@@ -44,26 +65,10 @@ def fetch_json(url_or_urls):
             with urllib.request.urlopen(req, timeout=20) as response:
                 return json.loads(response.read().decode("utf-8"))
         except Exception as err:
+            print(f"Fetch failed for {url}: {err}")
             last_err = err
             continue
     raise last_err
-
-
-STATE_FILE = "state.json"
-
-CLASS_MULTIPLIERS = {
-    "A": 1e-8,
-    "B": 1e-7,
-    "C": 1e-6,
-    "M": 1e-5,
-    "X": 1e-4,
-}
-
-
-def fetch_json(url: str):
-    req = urllib.request.Request(url, headers={"User-Agent": "SpaceWeatherMonitor/1.0"})
-    with urllib.request.urlopen(req, timeout=15) as response:
-        return json.loads(response.read().decode("utf-8"))
 
 
 def class_to_flux(flare_str: str) -> float:
@@ -145,7 +150,7 @@ def should_trigger(category_state: dict, current_val: float, now: datetime, esca
 
 def check_solar_flares(state: dict, now: datetime) -> bool:
     threshold_flux = class_to_flux(MIN_FLARE_CLASS)
-    data = fetch_json(NOAA_XRAY_URL)
+    data = fetch_json(NOAA_XRAY_URLS)
     long_wave = [row for row in data if row.get("energy") == "0.1-0.8nm"]
     if not long_wave:
         print("No X-ray 0.1-0.8nm data available.")
@@ -176,8 +181,7 @@ def check_solar_flares(state: dict, now: datetime) -> bool:
 
 
 def check_geomagnetic_kp(state: dict, now: datetime) -> bool:
-    data = fetch_json(NOAA_KP_URL)
-    # noaa-planetary-k-index.json returns a list of lists where index 0 is the header row
+    data = fetch_json(NOAA_KP_URLS)
     if not data or len(data) < 2:
         print("No Kp index data available.")
         return False
@@ -189,7 +193,6 @@ def check_geomagnetic_kp(state: dict, now: datetime) -> bool:
 
     print(f"[Kp Index] Latest: Kp {current_kp:.2f} [{g_label}] | Threshold: Kp {MIN_KP_INDEX}")
 
-    # Trigger if Kp >= threshold and cooldown passed, OR if Kp jumped by at least +1.0
     last_str = state["kp"].get("last_alert_time")
     last_kp = float(state["kp"].get("peak_value", 0.0))
     cooldown_ok = not last_str or (now - datetime.fromisoformat(last_str)) > timedelta(hours=COOLDOWN_HOURS)
@@ -213,8 +216,7 @@ def check_geomagnetic_kp(state: dict, now: datetime) -> bool:
 
 
 def check_radio_blackouts(state: dict, now: datetime) -> bool:
-    data = fetch_json(NOAA_SCALES_URL)
-    # Index "0" represents current observed conditions
+    data = fetch_json(NOAA_SCALES_URLS)
     current_conditions = data.get("0", {})
     r_data = current_conditions.get("R", {})
     r_scale = int(r_data.get("Scale") or 0)
@@ -222,7 +224,6 @@ def check_radio_blackouts(state: dict, now: datetime) -> bool:
 
     print(f"[Radio Blackout] Current: R{r_scale} ({r_text}) | Threshold: R{MIN_RADIO_BLACKOUT}")
 
-    # Trigger if R-scale >= threshold and cooldown passed, OR if R-scale stepped up (e.g., R1 -> R2)
     last_str = state["radio_blackout"].get("last_alert_time")
     last_r = int(state["radio_blackout"].get("peak_value", 0))
     cooldown_ok = not last_str or (now - datetime.fromisoformat(last_str)) > timedelta(hours=COOLDOWN_HOURS)
@@ -276,12 +277,3 @@ def main():
             if check_fn(state, now):
                 state_changed = True
         except Exception as exc:
-            print(f"Error running {check_fn.__name__}: {exc}")
-
-    if state_changed:
-        save_state(state)
-
-
-if __name__ == "__main__":
-    main()
-
