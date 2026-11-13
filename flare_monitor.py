@@ -76,7 +76,9 @@ def get_xrays() -> list:
 
 
 def check_flares(state: dict, now: datetime) -> bool:
-    thresh = MULT[MIN_FLARE_CLASS[0].upper()] * float(MIN_FLARE_CLASS[1:])
+    clean_min = MIN_FLARE_CLASS.strip().upper()
+    letter = clean_min[0]
+    thresh = MULT[letter] * float(clean_min[1:])
     recent = get_xrays()
     peak = max(recent, key=lambda x: x["f"])
     lbl = flux_to_class(peak["f"])
@@ -90,8 +92,12 @@ def check_flares(state: dict, now: datetime) -> bool:
 
 def check_kp(state: dict, now: datetime) -> bool:
     latest = json.loads(fetch(KP_JSON))[-1]
-    ts = latest["time_tag"] if isinstance(latest, dict) else latest[0]
-    kp = float(latest.get("Kp", latest.get("kp_index", 0)) if isinstance(latest, dict) else latest[1])
+    if isinstance(latest, dict):
+        ts = latest.get("time_tag", "Unknown")
+        kp = float(latest.get("Kp") or latest.get("kp_index") or 0)
+    else:
+        ts = latest[0]
+        kp = float(latest[1])
     g = f"G{min(5, int(kp) - 4)}" if kp >= 5 else "G0"
     print(f"Kp Index Latest: Kp {kp:.2f} ({g}) | Threshold: Kp {MIN_KP_INDEX}")
     if kp >= MIN_KP_INDEX and can_alert(state["kp"], kp, now, mult=0, add=1.0):
